@@ -4,7 +4,7 @@ Passkey (WebAuthn) login for the [Sulu](https://sulu.io) admin, managed in the u
 
 > **Node is needed on every Sulu update.** This bundle adds JavaScript to the admin, so the admin can no longer use the
 > prebuilt download: `sulu:admin:update-build` builds it itself and needs Node and npm wherever you run it. The same goes
-> for updates of this bundle.
+> for updates of this bundle. Run it interactively and keep your `package.json`, see [Building the admin](#building-the-admin).
 
 ## What it does
 
@@ -58,6 +58,21 @@ bin/adminconsole sulu-passkey:install
 bin/adminconsole sulu:admin:update-build
 bin/adminconsole doctrine:migrations:migrate
 ```
+
+### Building the admin
+
+`sulu:admin:update-build` compares `assets/admin` with the Sulu skeleton and asks about each file that differs. For
+`package.json` its default is to overwrite your file with the skeleton's, which removes this bundle. So run it without
+`--no-interaction` and answer:
+
+- "Do you want to overwrite your local version of "package.json"?": `n`
+- "Merge "package.json" together like above?": `y`
+- "Do you want to overwrite your local version of "app.js"?": `n` (the default)
+
+If `package.json` was overwritten, the build fails with `Can't resolve 'sulu-passkey-bundle'`. Run
+`bin/adminconsole sulu-passkey:install` and `sulu:admin:update-build` again, this time with the answers above.
+
+Do this after every Sulu update and every update of this bundle, and commit the build if your project keeps it in Git.
 
 Behind a reverse proxy, configure Symfony's trusted proxies. The login rate limit counts per client IP, and without them
 all clients share one limit, so one of them can block passkey logins for everyone.
@@ -130,8 +145,8 @@ add it again. Synced passkeys usually stay at 0 and are never marked.
 ## Development
 
 npm keeps a copy of `assets/admin` in `node_modules`, so `npm install` alone does not pick up changed JavaScript of this
-bundle. `sulu:admin:update-build` removes that copy first. In a manual build, delete
-`assets/admin/node_modules/sulu-passkey-bundle` before `npm install`.
+bundle. `sulu:admin:update-build` removes that copy first. In a manual build in `assets/admin`, delete
+`node_modules/sulu-passkey-bundle`, then run `npm install` and `npm run build`.
 
 The tests drive a real Sulu admin firewall in `tests/Application`. They need MySQL, see `DATABASE_URL` in
 `phpunit.xml.dist`.
