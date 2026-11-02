@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="tests/bootstrap.php"
+         cacheDirectory=".phpunit.cache"
+         colors="true"
+         failOnWarning="true"
+         failOnRisky="true">
+    <php>
+        <server name="APP_ENV" value="test" force="true"/>
+        <server name="KERNEL_CLASS" value="Actualizer\SuluPasskey\Tests\Application\Kernel" force="true"/>
+        <!-- doctrine.dbal.dbname_suffix of SuluTestBundle appends _test. -->
+        <env name="DATABASE_URL" value="mysql://root:root@db:3306/sulu_passkey?serverVersion=8.0.40&amp;charset=utf8mb4"/>
+        <!-- force: the DDEV container has its own PASSKEY_ORIGIN. -->
+        <env name="PASSKEY_ORIGIN" value="https://cms.example.test" force="true"/>
+    </php>
+    <testsuites>
+        <testsuite name="unit"><directory>tests/Unit</directory></testsuite>
+        <testsuite name="functional"><directory>tests/Functional</directory></testsuite>
+    </testsuites>
+    <source><include><directory>src</directory></include></source>
+</phpunit>

@@ -1,0 +1,64 @@
+security:
+    access_decision_manager:
+        strategy: unanimous
+        allow_if_all_abstain: true
+
+    # The real hasher, not plaintext: with plaintext the hash Sulu stores on a password change does not verify.
+    password_hashers:
+        Symfony\Component\Security\Core\User\PasswordAuthenticatedUserInterface:
+            algorithm: auto
+            cost: 4
+            time_cost: 3
+            memory_cost: 10
+
+    providers:
+        sulu:
+            id: sulu_security.user_provider
+
+    firewalls:
+        admin:
+            pattern: ^/admin(\/|$)
+            lazy: true
+            provider: sulu
+            entry_point: sulu_security.authentication_entry_point
+            json_login:
+                check_path: sulu_admin.login_check
+                success_handler: sulu_security.authentication_handler
+                failure_handler: sulu_security.authentication_handler
+            logout:
+                path: sulu_admin.logout
+            two_factor:
+                prepare_on_login: true
+                prepare_on_access_denied: true
+                check_path: 2fa_login_check_admin
+                authentication_required_handler: sulu_security.two_factor_authentication_required_handler
+                success_handler: sulu_security.two_factor_authentication_success_handler
+                failure_handler: sulu_security.two_factor_authentication_failure_handler
+
+    access_control:
+        - { path: ^/admin/reset, roles: PUBLIC_ACCESS }
+        - { path: ^/admin/security/reset, roles: PUBLIC_ACCESS }
+        - { path: ^/admin/login$, roles: PUBLIC_ACCESS }
+        - { path: ^/admin/2fa, roles: PUBLIC_ACCESS }
+        - { path: ^/admin/translations, roles: PUBLIC_ACCESS }
+        - { path: ^/admin$, roles: PUBLIC_ACCESS }
+        - { path: ^/admin/$, roles: PUBLIC_ACCESS }
+        - { path: ^/admin/p/, roles: PUBLIC_ACCESS }
+        - { path: ^/admin, roles: ROLE_USER }
+
+scheb_two_factor:
+    security_tokens:
+        - Symfony\Component\Security\Core\Authentication\Token\UsernamePasswordToken
+        - Symfony\Component\Security\Http\Authenticator\Token\PostAuthenticationToken
+    email:
+        enabled: true
+        sender_email: admin@example.test
+    trusted_device:
+        enabled: true
+
+sulu_security:
+    checker:
+        enabled: true
+
+sulu_passkey:
+    sender: admin@example.test
