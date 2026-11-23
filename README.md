@@ -22,6 +22,9 @@ Passkey (WebAuthn) login for the [Sulu](https://sulu.io) admin, managed in the u
 
 Sulu 3 with PHP 8.4 or newer, Doctrine DBAL 4 and the skeleton's `admin` firewall with `json_login`. `security.yaml` needs no change.
 
+The migration creates its table through Doctrine's schema, so it is not tied to MySQL: MariaDB and PostgreSQL get
+their own SQL. The tests of this bundle run against MySQL only.
+
 ## Installation
 
 ```bash
@@ -40,6 +43,9 @@ invalidates all passkeys:
 ```dotenv
 PASSKEY_ORIGIN=https://cms.example.com
 ```
+
+Passkeys only work when the admin is opened on exactly this host. Any other host is refused, a subdomain of it
+included.
 
 Set a sender for the notification mails in `config/packages/sulu_passkey.yaml`. Do not skip this: without one, owners are
 not told about changes to their passkeys, and for accounts without two-factor login that mail may be the only sign of a
@@ -141,7 +147,8 @@ add it again. Synced passkeys usually stay at 0 and are never marked.
   and is used up when that change starts, also without session locking. An enrollment that was started has 2 minutes
   to finish.
 - A challenge only redeems in the browser that asked for it. That browser gets the cookie
-  `__Host-sulu_passkey_binding` for it, a random value that lasts until the browser is closed.
+  `__Host-sulu_passkey_binding` for it, a random value that lasts until the browser is closed. Without HTTPS it is
+  called `sulu_passkey_binding`.
 - `cache:clear` drops the challenges and confirmations that are under way, so a login or enrollment in flight during
   a deploy has to start again.
 - After changing your password, or coming in through a password reset mail, sign in again before the password counts as
