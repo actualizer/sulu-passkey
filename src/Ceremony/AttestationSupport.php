@@ -1,4 +1,6 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 namespace Actualizer\SuluPasskey\Ceremony;
 
@@ -10,7 +12,7 @@ use Webauthn\AttestationStatement\NoneAttestationStatementSupport;
 use Webauthn\AttestationStatement\PackedAttestationStatementSupport;
 
 /**
- * The attestation formats this plugin accepts. The same set must reach both the
+ * The attestation formats this bundle accepts. The same set must reach both the
  * serializer (parsing) and the creation ceremony (validation); a format known to
  * only one of them fails every registration that uses it.
  *
@@ -19,9 +21,11 @@ use Webauthn\AttestationStatement\PackedAttestationStatementSupport;
  */
 final class AttestationSupport
 {
+    private static ?AttestationStatementSupportManager $manager = null;
+
     public static function manager(): AttestationStatementSupportManager
     {
-        return new AttestationStatementSupportManager([
+        return self::$manager ??= new AttestationStatementSupportManager([
             new NoneAttestationStatementSupport(),
             PackedAttestationStatementSupport::create(Manager::create()->add(ES256::create(), RS256::create())),
         ]);

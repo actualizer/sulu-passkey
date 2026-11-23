@@ -47,7 +47,7 @@ final readonly class RegistrationCeremony
 
         return [
             'options' => $options,
-            'challengeId' => $this->challengeStore->issue($challenge, ChallengePurpose::Registration, binding: $binding),
+            'challengeId' => $this->challengeStore->issue($challenge, ChallengePurpose::Registration, binding: $this->bindingOf($user, $binding)),
         ];
     }
 
@@ -57,7 +57,7 @@ final readonly class RegistrationCeremony
             throw new \RuntimeException('Credential name exceeds the maximum allowed length.');
         }
 
-        $challenge = $this->challengeStore->consume($challengeId, ChallengePurpose::Registration, $binding);
+        $challenge = $this->challengeStore->consume($challengeId, ChallengePurpose::Registration, $this->bindingOf($user, $binding));
         if (null === $challenge) {
             throw new \RuntimeException('Invalid or expired registration challenge.');
         }
@@ -75,6 +75,11 @@ final readonly class RegistrationCeremony
         $record = AuthenticatorAttestationResponseValidator::create($this->ceremonyFactory->creation())
             ->check($response, $options, $host);
 
+        // The unique index would refuse it too, but as a database error instead of a refused enrollment.
+        if (null !== $this->credentials->findOneByCredentialId($record->publicKeyCredentialId)) {
+            throw new \RuntimeException('The credential is already registered.');
+        }
+
         $passkey = new PasskeyCredential(
             $user,
             // Taken from the options actually used, never re-resolved: the stored and the signed value must not be
@@ -91,6 +96,15 @@ final readonly class RegistrationCeremony
         $this->credentials->save($passkey);
 
         return $passkey;
+    }
+
+    /**
+     * The challenge is what the reauthentication of this user opened, so it only redeems for them: a session that
+     * changes hands before the enrollment ends must not hand it on.
+     */
+    private function bindingOf(UserInterface $user, string $binding): string
+    {
+        return $binding . ':' . $user->getId();
     }
 
     private function buildOptions(UserInterface $user, string $host, string $challenge): PublicKeyCredentialCreationOptions

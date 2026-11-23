@@ -2,25 +2,14 @@
 import React, {Fragment} from 'react';
 import {action, observable} from 'mobx';
 import {observer} from 'mobx-react';
-import {Button, Dialog, Loader} from 'sulu-admin-bundle/components';
+import {Dialog, Loader} from 'sulu-admin-bundle/components';
 import {Requester} from 'sulu-admin-bundle/services';
 import userStore from 'sulu-admin-bundle/stores/userStore';
 import {translate} from 'sulu-admin-bundle/utils';
+import CredentialRow from './CredentialRow';
 import passkeysStyles from './passkeys.scss';
 import type {FieldTypeProps} from 'sulu-admin-bundle/types';
-
-type Credential = {|
-    createdAt: string,
-    id: string,
-    cloneWarningAt: ?string,
-    lastUsedAt: ?string,
-    name: string,
-|};
-
-const formatDate = (value: string): string => new Date(value).toLocaleString(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-});
+import type {Credential} from './CredentialRow';
 
 /**
  * The passkeys of the user being edited. Only deleting is possible here, and it happens right away instead of waiting
@@ -31,6 +20,7 @@ class UserPasskeys extends React.Component<FieldTypeProps<void>> {
     @observable credentials: ?Array<Credential>;
     @observable credentialToDelete: ?Credential;
     @observable deleting: boolean = false;
+    @observable deleteFailed: boolean = false;
 
     get url(): ?string {
         const userId = this.props.formInspector.getValueByPath('/id');
@@ -60,6 +50,7 @@ class UserPasskeys extends React.Component<FieldTypeProps<void>> {
 
     @action handleDeleteClick = (credential: Credential) => {
         this.credentialToDelete = credential;
+        this.deleteFailed = false;
     };
 
     @action handleDeleteCancel = () => {
@@ -73,46 +64,20 @@ class UserPasskeys extends React.Component<FieldTypeProps<void>> {
         }
 
         this.deleting = true;
+        this.deleteFailed = false;
 
         Requester.delete(`${url}/${credentialToDelete.id}`)
             .then(this.loadCredentials)
-            .finally(action(() => {
+            .then(action(() => {
                 this.deleting = false;
                 this.credentialToDelete = undefined;
+            }))
+            // The dialog stays open with the reason, instead of closing as if the passkey were gone.
+            .catch(action(() => {
+                this.deleting = false;
+                this.deleteFailed = true;
             }));
     };
-
-    renderCredential(credential: Credential) {
-        return (
-            <li className={passkeysStyles.credential} key={credential.id}>
-                <div className={passkeysStyles.details}>
-                    <div className={passkeysStyles.name}>{credential.name}</div>
-                    <div className={passkeysStyles.meta}>
-                        {translate('sulu_passkey.created_at', {date: formatDate(credential.createdAt)})}
-                        {' · '}
-                        {credential.lastUsedAt
-                            ? translate('sulu_passkey.last_used_at', {date: formatDate(credential.lastUsedAt)})
-                            : translate('sulu_passkey.never_used')
-                        }
-                    </div>
-                    {credential.cloneWarningAt &&
-                        <div className={passkeysStyles.error}>
-                            {translate('sulu_passkey.clone_warning', {date: formatDate(credential.cloneWarningAt)})}
-                        </div>
-                    }
-                </div>
-                <Button
-                    disabled={!!this.props.disabled || this.ownAccount}
-                    icon="su-trash-alt"
-                    onClick={this.handleDeleteClick}
-                    skin="link"
-                    value={credential}
-                >
-                    {translate('sulu_admin.delete')}
-                </Button>
-            </li>
-        );
-    }
 
     render() {
         if (!this.url) {
@@ -128,7 +93,14 @@ class UserPasskeys extends React.Component<FieldTypeProps<void>> {
                 {this.credentials.length === 0
                     ? <p className={passkeysStyles.empty}>{translate('sulu_passkey.none')}</p>
                     : <ul className={passkeysStyles.list}>
-                        {this.credentials.map((credential) => this.renderCredential(credential))}
+                        {this.credentials.map((credential) => (
+                            <CredentialRow
+                                credential={credential}
+                                disabled={!!this.props.disabled || this.ownAccount}
+                                key={credential.id}
+                                onDelete={this.handleDeleteClick}
+                            />
+                        ))}
                     </ul>
                 }
                 {this.ownAccount && <p className={passkeysStyles.empty}>{translate('sulu_passkey.user_own_hint')}</p>}
@@ -144,6 +116,7 @@ class UserPasskeys extends React.Component<FieldTypeProps<void>> {
                     {translate('sulu_passkey.user_delete_warning', {
                         name: this.credentialToDelete ? this.credentialToDelete.name : '',
                     })}
+                    {this.deleteFailed && <p className={passkeysStyles.error}>{translate('sulu_passkey.delete_failed')}</p>}
                 </Dialog>
             </Fragment>
         );

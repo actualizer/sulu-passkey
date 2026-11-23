@@ -11,9 +11,10 @@ use Actualizer\SuluPasskey\Credential\CredentialStore;
 use Actualizer\SuluPasskey\Entity\PasskeyCredential;
 use Actualizer\SuluPasskey\Http\ChallengeResponse;
 use Actualizer\SuluPasskey\Http\JsonPayload;
+use Actualizer\SuluPasskey\Http\Refusal;
 use Actualizer\SuluPasskey\Http\TooManyRequests;
 use Actualizer\SuluPasskey\Security\RecentReauthentication;
-use Actualizer\SuluPasskey\Security\SessionBinding;
+use Actualizer\SuluPasskey\Security\BrowserBinding;
 use Actualizer\SuluPasskey\Security\SessionPassword;
 use Psr\Log\LoggerInterface;
 use Sulu\Component\Security\Authentication\UserInterface;
@@ -56,7 +57,7 @@ final class ProfileController extends AbstractController
     public function deleteCredential(Request $request, string $id): JsonResponse
     {
         $user = $this->suluUser();
-        if (!$this->reauthentication->holdsFor($request, $user)) {
+        if (!$this->reauthentication->redeem($request, $user, RecentReauthentication::deletionOf($id))) {
             return $this->refused('Reauthentication required.');
         }
 
@@ -68,7 +69,6 @@ final class ProfileController extends AbstractController
 
         $name = $credential->getName();
         $this->credentials->remove($credential);
-        $this->reauthentication->forget($request);
         $this->audit->removed($user, $user, $id, $name);
 
         return new JsonResponse(null, Response::HTTP_NO_CONTENT);
@@ -77,17 +77,22 @@ final class ProfileController extends AbstractController
     #[Route('/admin/passkey/reauth/options', name: 'sulu_passkey.reauth_options', methods: ['POST'])]
     public function reauthenticationOptions(Request $request): JsonResponse
     {
-        return ChallengeResponse::of($this->authentication->createReauthenticationOptions($this->suluUser(), $request->getHost(), SessionBinding::of($request)));
+        return ChallengeResponse::of($this->authentication->createReauthenticationOptions($this->suluUser(), $request->getHost(), BrowserBinding::of($request)));
     }
 
     /**
-     * Takes the password or an assertion of one of the user's own passkeys. Answers 403 on failure: a 401 would make
-     * Sulu's admin show its login.
+     * Takes the password or an assertion of one of the user's own passkeys, and what the proof is for: it opens that
+     * one change and no other. Answers 403 on failure: a 401 would make Sulu's admin show its login.
      */
     #[Route('/admin/passkey/reauth', name: 'sulu_passkey.reauth', methods: ['POST'])]
     public function reauthenticate(Request $request): JsonResponse
     {
         $user = $this->suluUser();
+
+        $scope = $this->scope($request);
+        if (null === $scope) {
+            return new JsonResponse(['message' => 'Malformed request.'], Response::HTTP_BAD_REQUEST);
+        }
 
         $password = JsonPayload::string($request, 'password');
         if (null !== $password) {
@@ -106,7 +111,7 @@ final class ProfileController extends AbstractController
             }
 
             $limiter->reset();
-            $this->reauthentication->record($request, $user);
+            $this->reauthentication->record($request, $user, $scope);
 
             return new JsonResponse(null, Response::HTTP_NO_CONTENT);
         }
@@ -118,14 +123,18 @@ final class ProfileController extends AbstractController
         }
 
         try {
-            $this->authentication->verifyReauthentication($user, $credential, $challengeId, $request->getHost(), SessionBinding::of($request));
+            $this->authentication->verifyReauthentication($user, $credential, $challengeId, $request->getHost(), BrowserBinding::of($request));
         } catch (\Throwable $exception) {
-            $this->logger->notice('Passkey reauthentication failed', ['exception' => $exception]);
+            if (!Refusal::covers($exception)) {
+                throw $exception;
+            }
+
+            $this->logger->notice('Passkey reauthentication failed', Refusal::context($exception));
 
             return $this->refused('Reauthentication failed.');
         }
 
-        $this->reauthentication->record($request, $user);
+        $this->reauthentication->record($request, $user, $scope);
 
         return new JsonResponse(null, Response::HTTP_NO_CONTENT);
     }
@@ -134,20 +143,18 @@ final class ProfileController extends AbstractController
     public function registerOptions(Request $request): JsonResponse
     {
         $user = $this->suluUser();
-        if (!$this->reauthentication->holdsFor($request, $user)) {
+        // Used up here, not at the end: the challenge handed out now redeems once, so one proof is one enrollment.
+        if (!$this->reauthentication->redeem($request, $user, RecentReauthentication::ENROLLMENT)) {
             return $this->refused('Reauthentication required.');
         }
 
-        return ChallengeResponse::of($this->registration->createOptions($user, $request->getHost(), SessionBinding::of($request)));
+        return ChallengeResponse::of($this->registration->createOptions($user, $request->getHost(), BrowserBinding::of($request)));
     }
 
     #[Route('/admin/passkey/register', name: 'sulu_passkey.register', methods: ['POST'])]
     public function register(Request $request): JsonResponse
     {
         $user = $this->suluUser();
-        if (!$this->reauthentication->holdsFor($request, $user)) {
-            return $this->refused('Reauthentication required.');
-        }
 
         $credential = JsonPayload::string($request, 'credential');
         $challengeId = JsonPayload::string($request, 'challengeId');
@@ -157,19 +164,31 @@ final class ProfileController extends AbstractController
         }
 
         try {
-            $passkey = $this->registration->verify($user, $credential, $challengeId, $request->getHost(), SessionBinding::of($request), trim($name));
+            $passkey = $this->registration->verify($user, $credential, $challengeId, $request->getHost(), BrowserBinding::of($request), trim($name));
         } catch (\Throwable $exception) {
-            $this->logger->notice('Passkey registration failed', ['exception' => $exception]);
-            // The admin confirms again for every attempt, so a confirmation has no reason to outlive a failed one.
-            $this->reauthentication->forget($request);
+            if (!Refusal::covers($exception)) {
+                throw $exception;
+            }
+
+            $this->logger->notice('Passkey registration failed', Refusal::context($exception));
 
             return new JsonResponse(['message' => 'Passkey registration failed.'], Response::HTTP_BAD_REQUEST);
         }
 
-        $this->reauthentication->forget($request);
         $this->audit->added($user, $passkey->getId(), $passkey->getName());
 
         return new JsonResponse(['ok' => true]);
+    }
+
+    private function scope(Request $request): ?string
+    {
+        $credentialId = JsonPayload::string($request, 'credentialId');
+
+        return match (JsonPayload::string($request, 'purpose')) {
+            'register' => RecentReauthentication::ENROLLMENT,
+            'delete' => null === $credentialId ? null : RecentReauthentication::deletionOf($credentialId),
+            default => null,
+        };
     }
 
     private function refused(string $message): JsonResponse

@@ -10,7 +10,7 @@ use Symfony\Component\Security\Http\Event\AuthenticationTokenCreatedEvent;
  * Security::login() has to go through an authenticator of the firewall, and json_login creates a token on scheb's
  * `security_tokens` list, which would ask for the e-mail code. This swaps it for a PasskeyToken before scheb looks at it.
  *
- * Only passports with the attribute are touched. PasskeyController is the only code that sets it, after verifying an
+ * Only passports with the attribute are touched. LoginController is the only code that sets it, after verifying an
  * assertion; a password login never carries it, so its second factor stays.
  */
 final class PasskeyTokenListener

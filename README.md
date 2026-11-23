@@ -20,7 +20,7 @@ Passkey (WebAuthn) login for the [Sulu](https://sulu.io) admin, managed in the u
 
 ## Requirements
 
-Sulu 3 with PHP 8.4 or newer and the skeleton's `admin` firewall with `json_login`. `security.yaml` needs no change.
+Sulu 3 with PHP 8.4 or newer, Doctrine DBAL 4 and the skeleton's `admin` firewall with `json_login`. `security.yaml` needs no change.
 
 ## Installation
 
@@ -137,8 +137,13 @@ add it again. Synced passkeys usually stay at 0 and are never marked.
 - Login and login options together: 600 requests per minute for all clients. Many addresses can reach this and block
   passkey logins for everyone for as long as they keep going. Password logins are not affected.
 - Confirming with the password: 5 attempts per 15 minutes per user.
-- A confirmation lasts 5 minutes and is used up by a change or a failed enrollment. Without session locking, for
-  example Symfony's `PdoSessionHandler` with `LOCK_NONE` or Redis sessions, parallel requests can share one confirmation.
+- A confirmation is for one change: adding one passkey, or deleting the passkey it was given for. It lasts 5 minutes
+  and is used up when that change starts, also without session locking. An enrollment that was started has 2 minutes
+  to finish.
+- A challenge only redeems in the browser that asked for it. That browser gets the cookie
+  `__Host-sulu_passkey_binding` for it, a random value that lasts until the browser is closed.
+- `cache:clear` drops the challenges and confirmations that are under way, so a login or enrollment in flight during
+  a deploy has to start again.
 - After changing your password, or coming in through a password reset mail, sign in again before the password counts as
   a confirmation. An existing passkey works right away.
 

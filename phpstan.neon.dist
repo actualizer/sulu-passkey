@@ -3,6 +3,7 @@ parameters:
     paths:
         - src
         - config
+        - migrations
         - tests
     excludePaths:
         - tests/Application/var

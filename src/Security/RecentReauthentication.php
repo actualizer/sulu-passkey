@@ -4,41 +4,59 @@ declare(strict_types=1);
 
 namespace Actualizer\SuluPasskey\Security;
 
-use Psr\Clock\ClockInterface;
+use Actualizer\SuluPasskey\Challenge\ChallengePurpose;
+use Actualizer\SuluPasskey\Challenge\ChallengeStore;
 use Sulu\Component\Security\Authentication\UserInterface;
 use Symfony\Component\HttpFoundation\Request;
 
 /**
  * A new passkey is a permanent way into the account, so a session alone must not be enough to add one: a session can be
- * stolen or left open, and a passkey would outlive it and skip the e-mail code. The proof lasts for one enrollment.
+ * stolen or left open, and a passkey would outlive it and skip the e-mail code.
+ *
+ * The proof is for one change only, the one it was given for. It lives in the challenge store, which hands every entry
+ * out once: the session only names it, so parallel requests of a session without locking cannot share it.
  */
 final readonly class RecentReauthentication
 {
+    public const string ENROLLMENT = 'enroll';
+
     private const string KEY = 'sulu_passkey.reauthenticated';
 
     private const int LIFETIME_SECONDS = 300;
 
-    public function __construct(private ClockInterface $clock)
+    public function __construct(private ChallengeStore $store)
     {
     }
 
-    public function record(Request $request, UserInterface $user): void
+    public static function deletionOf(string $credentialId): string
     {
-        $request->getSession()->set(self::KEY, ['user' => $user->getId(), 'at' => $this->clock->now()->getTimestamp()]);
+        return 'delete:' . $credentialId;
     }
 
-    public function holdsFor(Request $request, UserInterface $user): bool
+    public function record(Request $request, UserInterface $user, string $scope): void
     {
-        $proof = $request->getSession()->get(self::KEY);
+        $id = $this->store->issue($this->grant($user, $scope), ChallengePurpose::Confirmation, BrowserBinding::of($request), self::LIFETIME_SECONDS);
 
-        return \is_array($proof)
-            && $user->getId() === ($proof['user'] ?? null)
-            && \is_int($proof['at'] ?? null)
-            && $this->clock->now()->getTimestamp() - $proof['at'] <= self::LIFETIME_SECONDS;
+        $request->getSession()->set(self::KEY, $id);
     }
 
-    public function forget(Request $request): void
+    /**
+     * Uses the proof up, whether it fits or not.
+     */
+    public function redeem(Request $request, UserInterface $user, string $scope): bool
     {
-        $request->getSession()->remove(self::KEY);
+        $id = $request->getSession()->remove(self::KEY);
+        if (!\is_string($id)) {
+            return false;
+        }
+
+        $grant = $this->store->consume($id, ChallengePurpose::Confirmation, BrowserBinding::of($request));
+
+        return null !== $grant && hash_equals($this->grant($user, $scope), $grant);
+    }
+
+    private function grant(UserInterface $user, string $scope): string
+    {
+        return $user->getId() . ':' . $scope;
     }
 }

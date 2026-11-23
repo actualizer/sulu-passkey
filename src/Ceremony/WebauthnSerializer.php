@@ -1,4 +1,6 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 namespace Actualizer\SuluPasskey\Ceremony;
 
@@ -40,6 +42,11 @@ final class WebauthnSerializer
             throw new \RuntimeException('Credential response exceeds the maximum allowed size.');
         }
 
-        return $this->serializer->deserialize($json, PublicKeyCredential::class, 'json');
+        try {
+            return $this->serializer->deserialize($json, PublicKeyCredential::class, 'json');
+        } catch (\Throwable $exception) {
+            // Whatever the parser trips over, a type error included, is in what the client sent.
+            throw new \RuntimeException('Malformed credential response.', 0, $exception);
+        }
     }
 }

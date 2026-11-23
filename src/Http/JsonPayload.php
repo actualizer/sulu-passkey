@@ -11,10 +11,20 @@ use Symfony\Component\HttpFoundation\Request;
  */
 final class JsonPayload
 {
+    private const string DECODED = '_sulu_passkey_payload';
+
     public static function string(Request $request, string $key): ?string
     {
-        $payload = json_decode($request->getContent(), true);
-        $value = \is_array($payload) ? ($payload[$key] ?? null) : null;
+        $payload = $request->attributes->get(self::DECODED);
+        if (!\is_array($payload)) {
+            // Only a body sent as JSON: a form on another site can post text that parses as JSON, but it cannot set
+            // this content type.
+            $payload = 'json' === $request->getContentTypeFormat() ? json_decode($request->getContent(), true) : null;
+            $payload = \is_array($payload) ? $payload : [];
+            $request->attributes->set(self::DECODED, $payload);
+        }
+
+        $value = $payload[$key] ?? null;
 
         return \is_string($value) ? $value : null;
     }

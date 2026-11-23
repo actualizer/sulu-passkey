@@ -12,6 +12,7 @@ use Symfony\Component\DependencyInjection\Attribute\Autowire;
  */
 final readonly class RelyingParty
 {
+    /** @var non-empty-string */
     private string $host;
 
     private string $origin;
@@ -25,7 +26,12 @@ final readonly class RelyingParty
             throw new \InvalidArgumentException('PASSKEY_ORIGIN must be an absolute URL.');
         }
 
-        $this->host = strtolower($parts['host']);
+        $host = strtolower($parts['host']);
+        if ('' === $host) {
+            throw new \InvalidArgumentException('PASSKEY_ORIGIN must be an absolute URL.');
+        }
+
+        $this->host = $host;
         $this->origin = $parts['scheme'] . '://' . $this->host . (isset($parts['port']) ? ':' . $parts['port'] : '');
     }
 
@@ -36,8 +42,9 @@ final readonly class RelyingParty
      */
     public function id(string $requestHost): string
     {
-        $host = strtolower(trim($requestHost));
-        if ('' === $this->host || ($host !== $this->host && !str_ends_with($host, '.' . $this->host))) {
+        // Exactly this host: the origin is checked against the configured one alone, so a challenge handed out on any
+        // other host, a subdomain included, could never be redeemed.
+        if (strtolower(trim($requestHost)) !== $this->host) {
             throw new UnsupportedHostException();
         }
 

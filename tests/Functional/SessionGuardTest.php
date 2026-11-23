@@ -30,6 +30,8 @@ final class SessionGuardTest extends FunctionalTestCase
         /** @var array{options: array{challenge: string}, challengeId: string} $created */
         $created = $this->json();
         $this->client->jsonRequest('POST', '/admin/passkey/reauth', [
+            'purpose' => 'delete',
+            'credentialId' => $id,
             'challengeId' => $created['challengeId'],
             'credential' => $authenticator->sign($created['options']),
         ]);
@@ -84,7 +86,7 @@ final class SessionGuardTest extends FunctionalTestCase
 
         $this->client->request('GET', '/admin/passkey/credentials', server: ['HTTP_ACCEPT' => 'text/html']);
 
-        self::assertResponseRedirects('/admin');
+        self::assertResponseRedirects('/admin/');
     }
 
     public function testLockingAUserEndsAPasswordSession(): void

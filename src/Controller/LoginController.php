@@ -8,10 +8,11 @@ use Actualizer\SuluPasskey\Ceremony\AuthenticationCeremony;
 use Actualizer\SuluPasskey\Credential\CredentialStore;
 use Actualizer\SuluPasskey\Http\ChallengeResponse;
 use Actualizer\SuluPasskey\Http\JsonPayload;
+use Actualizer\SuluPasskey\Http\Refusal;
 use Actualizer\SuluPasskey\Http\TooManyRequests;
 use Actualizer\SuluPasskey\Security\AdminUserLoader;
 use Actualizer\SuluPasskey\Security\PasskeyTokenListener;
-use Actualizer\SuluPasskey\Security\SessionBinding;
+use Actualizer\SuluPasskey\Security\BrowserBinding;
 use Psr\Log\LoggerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Bundle\SecurityBundle\Security;
@@ -25,8 +26,8 @@ use Symfony\Component\Routing\Attribute\Route;
 
 /**
  * The public side of the login. /admin/p/ is the one path Sulu's access_control already leaves open, which is why no
- * security.yaml change is needed. Its preview routes (/admin/p/{token} and /admin/p/{token}/render) cannot match these
- * three-segment paths.
+ * security.yaml change is needed. Its preview routes (/admin/p/{token} and /admin/p/{token}/render) match neither of
+ * the two paths below.
  */
 final class LoginController extends AbstractController
 {
@@ -47,7 +48,7 @@ final class LoginController extends AbstractController
     public function options(Request $request): JsonResponse
     {
         return $this->refusedByLimit($request)
-            ?? ChallengeResponse::of($this->ceremony->createOptions($request->getHost(), SessionBinding::of($request)));
+            ?? ChallengeResponse::of($this->ceremony->createOptions($request->getHost(), BrowserBinding::of($request)));
     }
 
     #[Route('/admin/p/passkey/login', name: 'sulu_passkey.login', methods: ['POST'])]
@@ -65,11 +66,14 @@ final class LoginController extends AbstractController
         }
 
         try {
-            $passkey = $this->ceremony->verify($credential, $challengeId, $request->getHost(), SessionBinding::of($request));
+            $passkey = $this->ceremony->verify($credential, $challengeId, $request->getHost(), BrowserBinding::of($request));
             $user = $this->users->load($passkey->getUser());
         } catch (\Throwable $exception) {
-            // Validator, lookup and counter failures share no base class, and every one of them is a refused login.
-            $this->logger->notice('Passkey admin authentication failed', ['exception' => $exception]);
+            if (!Refusal::covers($exception)) {
+                throw $exception;
+            }
+
+            $this->logger->notice('Passkey admin authentication failed', Refusal::context($exception));
 
             return $this->failed();
         }

@@ -8,6 +8,7 @@ use Actualizer\SuluPasskey\Credential\CredentialStore;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Event\RequestEvent;
+use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 use Symfony\Component\Security\Core\Authentication\Token\Storage\TokenStorageInterface;
 
 /**
@@ -23,6 +24,7 @@ final readonly class PasskeySessionGuard
     public function __construct(
         private TokenStorageInterface $tokenStorage,
         private CredentialStore $credentials,
+        private UrlGeneratorInterface $urls,
     ) {
     }
 
@@ -45,7 +47,7 @@ final readonly class PasskeySessionGuard
 
         // The admin's JavaScript shows its login on a 401, a browser navigation needs a page to land on.
         $event->setResponse(\in_array('text/html', $request->getAcceptableContentTypes(), true)
-            ? new RedirectResponse('/admin')
+            ? new RedirectResponse($this->urls->generate('sulu_admin'))
             : new Response('', Response::HTTP_UNAUTHORIZED));
     }
 }

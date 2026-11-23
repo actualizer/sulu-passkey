@@ -5,24 +5,14 @@ import {observer} from 'mobx-react';
 import {Button, Dialog, Input, Loader, Overlay} from 'sulu-admin-bundle/components';
 import {Requester} from 'sulu-admin-bundle/services';
 import {translate} from 'sulu-admin-bundle/utils';
+import CredentialRow from './CredentialRow';
 import passkeysStyles from './passkeys.scss';
 import {isSupported, reauthenticateWithPasskey, reauthenticateWithPassword, register} from './webauthn';
 import type {FieldTypeProps} from 'sulu-admin-bundle/types';
+import type {Credential} from './CredentialRow';
+import type {Confirmation} from './webauthn';
 
 const CREDENTIALS_URL = '/admin/passkey/credentials';
-
-type Credential = {|
-    createdAt: string,
-    id: string,
-    cloneWarningAt: ?string,
-    lastUsedAt: ?string,
-    name: string,
-|};
-
-const formatDate = (value: string): string => new Date(value).toLocaleString(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-});
 
 /**
  * The passkeys of the signed-in user. Like the two-factor setup, this changes the account right away instead of
@@ -71,9 +61,9 @@ class Passkeys extends React.Component<FieldTypeProps<void>> {
         this.password = password;
     };
 
-    handleAddConfirm = () => this.enroll(() => reauthenticateWithPassword(this.password || ''));
+    handleAddConfirm = () => this.enroll(() => reauthenticateWithPassword(this.password || '', {purpose: 'register'}));
 
-    handleConfirmWithPasskey = () => this.enroll(reauthenticateWithPasskey);
+    handleConfirmWithPasskey = () => this.enroll(() => reauthenticateWithPasskey({purpose: 'register'}));
 
     // The server only opens an enrollment after a fresh proof that this is still the account's owner.
     @action enroll = (reauthenticate: () => Promise<mixed>) => {
@@ -110,11 +100,13 @@ class Passkeys extends React.Component<FieldTypeProps<void>> {
         this.deletePassword = password;
     };
 
-    handleDeleteConfirm = () => this.delete(() => reauthenticateWithPassword(this.deletePassword || ''));
+    handleDeleteConfirm = () => this.delete(
+        (confirmation) => reauthenticateWithPassword(this.deletePassword || '', confirmation)
+    );
 
     handleDeleteWithPasskey = () => this.delete(reauthenticateWithPasskey);
 
-    @action delete = (reauthenticate: () => Promise<mixed>) => {
+    @action delete = (reauthenticate: (confirmation: Confirmation) => Promise<mixed>) => {
         const {credentialToDelete} = this;
         if (!credentialToDelete) {
             return;
@@ -123,7 +115,7 @@ class Passkeys extends React.Component<FieldTypeProps<void>> {
         this.deleting = true;
         this.deleteFailed = false;
 
-        reauthenticate()
+        reauthenticate({purpose: 'delete', credentialId: credentialToDelete.id})
             .then(() => Requester.delete(`${CREDENTIALS_URL}/${credentialToDelete.id}`))
             .then(
                 action(() => {
@@ -169,40 +161,6 @@ class Passkeys extends React.Component<FieldTypeProps<void>> {
         this.root = root;
     };
 
-    renderCredential(credential: Credential) {
-        const {disabled} = this.props;
-
-        return (
-            <li className={passkeysStyles.credential} key={credential.id}>
-                <div className={passkeysStyles.details}>
-                    <div className={passkeysStyles.name}>{credential.name}</div>
-                    <div className={passkeysStyles.meta}>
-                        {translate('sulu_passkey.created_at', {date: formatDate(credential.createdAt)})}
-                        {' · '}
-                        {credential.lastUsedAt
-                            ? translate('sulu_passkey.last_used_at', {date: formatDate(credential.lastUsedAt)})
-                            : translate('sulu_passkey.never_used')
-                        }
-                    </div>
-                    {credential.cloneWarningAt &&
-                        <div className={passkeysStyles.error}>
-                            {translate('sulu_passkey.clone_warning', {date: formatDate(credential.cloneWarningAt)})}
-                        </div>
-                    }
-                </div>
-                <Button
-                    disabled={!!disabled}
-                    icon="su-trash-alt"
-                    onClick={this.handleDeleteClick}
-                    skin="link"
-                    value={credential}
-                >
-                    {translate('sulu_admin.delete')}
-                </Button>
-            </li>
-        );
-    }
-
     render() {
         const {disabled} = this.props;
 
@@ -215,7 +173,14 @@ class Passkeys extends React.Component<FieldTypeProps<void>> {
                 {this.credentials.length === 0
                     ? <p className={passkeysStyles.empty}>{translate('sulu_passkey.none')}</p>
                     : <ul className={passkeysStyles.list}>
-                        {this.credentials.map((credential) => this.renderCredential(credential))}
+                        {this.credentials.map((credential) => (
+                            <CredentialRow
+                                credential={credential}
+                                disabled={!!disabled}
+                                key={credential.id}
+                                onDelete={this.handleDeleteClick}
+                            />
+                        ))}
                     </ul>
                 }
                 {isSupported()

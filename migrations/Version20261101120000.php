@@ -5,10 +5,16 @@ declare(strict_types=1);
 namespace Actualizer\SuluPasskey\Migrations;
 
 use Doctrine\DBAL\Schema\Schema;
+use Doctrine\DBAL\Types\Types;
 use Doctrine\Migrations\AbstractMigration;
 
+/**
+ * Through the schema, not as SQL: Sulu runs on MySQL, MariaDB and PostgreSQL.
+ */
 final class Version20261101120000 extends AbstractMigration
 {
+    private const string TABLE = 'sulu_passkey_credential';
+
     public function getDescription(): string
     {
         return 'Passkeys of Sulu admin users';
@@ -16,31 +22,28 @@ final class Version20261101120000 extends AbstractMigration
 
     public function up(Schema $schema): void
     {
-        $this->addSql(<<<'SQL'
-            CREATE TABLE sulu_passkey_credential (
-                id VARCHAR(36) NOT NULL,
-                user_id INT NOT NULL,
-                rp_id VARCHAR(255) NOT NULL,
-                credential_id VARBINARY(1023) NOT NULL,
-                public_key VARBINARY(1024) NOT NULL,
-                user_handle VARBINARY(64) NOT NULL,
-                sign_count INT UNSIGNED NOT NULL,
-                aaguid VARCHAR(36) NOT NULL,
-                transports JSON NOT NULL,
-                name VARCHAR(120) NOT NULL,
-                created_at DATETIME NOT NULL,
-                last_used_at DATETIME DEFAULT NULL,
-                clone_warning_at DATETIME DEFAULT NULL,
-                INDEX IDX_B7C5A83FA76ED395 (user_id),
-                UNIQUE INDEX uniq_sulu_passkey_credential_id (credential_id),
-                PRIMARY KEY (id),
-                CONSTRAINT FK_SULU_PASSKEY_USER FOREIGN KEY (user_id) REFERENCES se_users (id) ON DELETE CASCADE
-            ) DEFAULT CHARACTER SET utf8mb4 COLLATE `utf8mb4_unicode_ci` ENGINE = InnoDB
-            SQL);
+        $table = $schema->createTable(self::TABLE);
+        $table->addColumn('id', Types::STRING, ['length' => 36]);
+        $table->addColumn('user_id', Types::INTEGER);
+        $table->addColumn('rp_id', Types::STRING, ['length' => 255]);
+        $table->addColumn('credential_id', Types::BINARY, ['length' => 1023]);
+        $table->addColumn('public_key', Types::BINARY, ['length' => 1024]);
+        $table->addColumn('user_handle', Types::BINARY, ['length' => 64]);
+        $table->addColumn('sign_count', Types::INTEGER, ['unsigned' => true]);
+        $table->addColumn('aaguid', Types::STRING, ['length' => 36]);
+        $table->addColumn('transports', Types::JSON);
+        $table->addColumn('name', Types::STRING, ['length' => 120]);
+        $table->addColumn('created_at', Types::DATETIME_IMMUTABLE);
+        $table->addColumn('last_used_at', Types::DATETIME_IMMUTABLE, ['notnull' => false]);
+        $table->addColumn('clone_warning_at', Types::DATETIME_IMMUTABLE, ['notnull' => false]);
+        $table->setPrimaryKey(['id']);
+        $table->addUniqueIndex(['credential_id'], 'uniq_sulu_passkey_credential_id');
+        $table->addIndex(['user_id'], 'IDX_B7C5A83FA76ED395');
+        $table->addForeignKeyConstraint('se_users', ['user_id'], ['id'], ['onDelete' => 'CASCADE'], 'FK_SULU_PASSKEY_USER');
     }
 
     public function down(Schema $schema): void
     {
-        $this->addSql('DROP TABLE sulu_passkey_credential');
+        $schema->dropTable(self::TABLE);
     }
 }

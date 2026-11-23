@@ -42,13 +42,19 @@ export const login = async () => {
     return Requester.post('/admin/p/passkey/login', {challengeId, credential: toAssertion(credential)});
 };
 
-export const reauthenticateWithPassword = (password: string) => Requester.post('/admin/passkey/reauth', {password});
+// What a confirmation is for. The server opens that one change with it and no other.
+export type Confirmation = {| purpose: 'register' |} | {| credentialId: string, purpose: 'delete' |};
 
-export const reauthenticateWithPasskey = async () => {
+export const reauthenticateWithPassword = (password: string, confirmation: Confirmation) => Requester.post(
+    '/admin/passkey/reauth',
+    {...confirmation, password}
+);
+
+export const reauthenticateWithPasskey = async (confirmation: Confirmation) => {
     const {options, challengeId} = await Requester.post('/admin/passkey/reauth/options', {});
     const credential = await sign(options);
 
-    await Requester.post('/admin/passkey/reauth', {challengeId, credential: toAssertion(credential)});
+    await Requester.post('/admin/passkey/reauth', {...confirmation, challengeId, credential: toAssertion(credential)});
 };
 
 export const register = async (name: string) => {

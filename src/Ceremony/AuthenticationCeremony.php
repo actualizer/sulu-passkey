@@ -25,9 +25,8 @@ use Webauthn\TrustPath\EmptyTrustPath;
  *
  * The account comes from the STORED credential's owner, never from the userHandle carried in the assertion.
  *
- * Unlike Shopware's stateless token endpoint, a Sulu login creates a session, so every challenge is bound to the
- * browser session that requested it. Without that, a cross-site POST of an attacker's assertion could sign a victim
- * into the attacker's account.
+ * A login creates a session, so every challenge is bound to the browser that requested it. Without that, a cross-site
+ * POST of an attacker's assertion could sign a victim into the attacker's account.
  */
 final readonly class AuthenticationCeremony
 {

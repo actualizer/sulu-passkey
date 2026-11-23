@@ -124,6 +124,8 @@ final class PasskeyLoginTest extends FunctionalTestCase
     public function testTheLoginChangesTheSessionId(): void
     {
         $authenticator = $this->enroll($this->createUser());
+        // The options start no session, so the one a login could be fixed to comes from someone signed in before.
+        $this->passwordLogin($this->createUser());
         $created = $this->loginOptions();
         $cookie = $this->client->getRequest()->getSession()->getName();
         $before = $this->client->getCookieJar()->get($cookie, '/admin')?->getValue();
@@ -157,6 +159,62 @@ final class PasskeyLoginTest extends FunctionalTestCase
         $this->client->jsonRequest('POST', '/admin/p/passkey/login', ['credential' => ['no' => 'string']]);
 
         self::assertResponseStatusCodeSame(401);
+    }
+
+    public function testAskingForLoginOptionsStartsNoSession(): void
+    {
+        $this->loginOptions();
+
+        $cookies = $this->client->getResponse()->headers->getCookies();
+        self::assertCount(1, $cookies);
+        self::assertSame('__Host-sulu_passkey_binding', $cookies[0]->getName());
+        self::assertTrue($cookies[0]->isSecure());
+        self::assertTrue($cookies[0]->isHttpOnly());
+        self::assertSame('strict', $cookies[0]->getSameSite());
+        self::assertSame('/', $cookies[0]->getPath());
+        self::assertNull($cookies[0]->getDomain());
+    }
+
+    public function testTheBrowserKeepsItsBinding(): void
+    {
+        $this->loginOptions();
+        $this->loginOptions();
+
+        self::assertSame([], $this->client->getResponse()->headers->getCookies());
+    }
+
+    public function testABodyThatIsNotSentAsJsonIsNotRead(): void
+    {
+        $authenticator = $this->enroll($this->createUser());
+        $created = $this->loginOptions();
+
+        $this->client->request('POST', '/admin/p/passkey/login', server: ['CONTENT_TYPE' => 'text/plain'], content: (string) json_encode([
+            'challengeId' => $created['challengeId'],
+            'credential' => $authenticator->sign($created['options']),
+        ]));
+
+        self::assertResponseStatusCodeSame(401);
+    }
+
+    public function testWhateverTheParserTripsOverIsARefusalNotAServerError(): void
+    {
+        $malformed = [
+            'x',
+            'null',
+            '[]',
+            '{}',
+            '{"id":1,"rawId":[],"type":null,"response":{}}',
+            '{"id":"eA","rawId":"eA","type":"public-key","response":{"clientDataJSON":5,"authenticatorData":[],"signature":null}}',
+            '{"id":"eA","rawId":"eA","type":"public-key","response":{"clientDataJSON":"e30","authenticatorData":"AA","signature":"AA","userHandle":5}}',
+            '{"id":"eA","rawId":"eA","type":"public-key","response":{"clientDataJSON":"e30","attestationObject":"AA"}}',
+        ];
+
+        foreach ($malformed as $credential) {
+            $created = $this->loginOptions();
+            $this->client->jsonRequest('POST', '/admin/p/passkey/login', ['challengeId' => $created['challengeId'], 'credential' => $credential]);
+
+            self::assertResponseStatusCodeSame(401, $credential);
+        }
     }
 
     private function currentUserIdentifier(): string

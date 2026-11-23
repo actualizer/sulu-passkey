@@ -29,7 +29,7 @@ final class ChallengeStorePruningTest extends TestCase
         };
 
         new ChallengeStore($pool, new MockClock(), new LockFactory(new InMemoryStore()), pruneEvery: 1)
-            ->issue('challenge', ChallengePurpose::Authentication);
+            ->issue('challenge', ChallengePurpose::Authentication, 'browser');
 
         self::assertSame(1, $pool->pruned);
     }

@@ -184,6 +184,13 @@ final class PasskeyCeremonyTest extends TestCase
         $this->authentication->createOptions('evil.test', self::SESSION);
     }
 
+    public function testASubdomainOfTheConfiguredHostGetsNoneEither(): void
+    {
+        $this->expectException(UnsupportedHostException::class);
+
+        new RelyingParty(self::ORIGIN)->id('www.cms.example.test');
+    }
+
     public function testAnUnknownHostLeavesNoChallengeBehind(): void
     {
         try {

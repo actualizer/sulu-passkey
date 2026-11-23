@@ -15,7 +15,7 @@ final class ReauthenticationTest extends FunctionalTestCase
     public function testAFailedEnrollmentUsesUpTheConfirmation(): void
     {
         $this->passwordLogin($this->createUser());
-        $this->client->jsonRequest('POST', '/admin/passkey/reauth', ['password' => self::PASSWORD]);
+        $this->client->jsonRequest('POST', '/admin/passkey/reauth', ['purpose' => 'register', 'password' => self::PASSWORD]);
         $this->client->jsonRequest('POST', '/admin/passkey/register/options');
         /** @var array{challengeId: string} $created */
         $created = $this->json();
@@ -41,7 +41,7 @@ final class ReauthenticationTest extends FunctionalTestCase
         $user = $this->createUser();
         $this->passwordLogin($user);
 
-        $this->client->jsonRequest('POST', '/admin/passkey/reauth', ['password' => self::PASSWORD]);
+        $this->client->jsonRequest('POST', '/admin/passkey/reauth', ['purpose' => 'register', 'password' => self::PASSWORD]);
         self::assertResponseStatusCodeSame(204);
 
         $this->registerNewPasskey();
@@ -53,7 +53,7 @@ final class ReauthenticationTest extends FunctionalTestCase
     {
         $this->passwordLogin($this->createUser());
 
-        $this->client->jsonRequest('POST', '/admin/passkey/reauth', ['password' => 'wrong']);
+        $this->client->jsonRequest('POST', '/admin/passkey/reauth', ['purpose' => 'register', 'password' => 'wrong']);
         self::assertResponseStatusCodeSame(403);
 
         $this->client->jsonRequest('POST', '/admin/passkey/register/options');
@@ -64,7 +64,7 @@ final class ReauthenticationTest extends FunctionalTestCase
     {
         $user = $this->createUser();
         $this->passwordLogin($user);
-        $this->client->jsonRequest('POST', '/admin/passkey/reauth', ['password' => self::PASSWORD]);
+        $this->client->jsonRequest('POST', '/admin/passkey/reauth', ['purpose' => 'register', 'password' => self::PASSWORD]);
         $this->registerNewPasskey();
 
         $this->client->jsonRequest('POST', '/admin/passkey/register/options');
@@ -73,30 +73,121 @@ final class ReauthenticationTest extends FunctionalTestCase
         self::assertCount(1, $this->passkeysOf($user));
     }
 
-    public function testTheFinalStepChecksTheReauthenticationItself(): void
+    public function testAStartedEnrollmentHasTwoMinutesToFinish(): void
     {
         $user = $this->createUser();
         $this->passwordLogin($user);
-        $this->client->jsonRequest('POST', '/admin/passkey/reauth', ['password' => self::PASSWORD]);
+        $this->client->jsonRequest('POST', '/admin/passkey/reauth', ['purpose' => 'register', 'password' => self::PASSWORD]);
         $this->client->jsonRequest('POST', '/admin/passkey/register/options');
         /** @var array{options: array{challenge: string, user: array{id: string}}, challengeId: string} $created */
         $created = $this->json();
 
-        self::mockTime('+6 minutes');
+        self::mockTime('+3 minutes');
         $this->client->jsonRequest('POST', '/admin/passkey/register', [
             'challengeId' => $created['challengeId'],
             'name' => 'Laptop',
             'credential' => new SoftwareAuthenticator(self::HOST, self::ORIGIN)->register($created['options']),
         ]);
 
-        self::assertResponseStatusCodeSame(403);
+        self::assertResponseStatusCodeSame(400);
         self::assertCount(0, $this->passkeysOf($user));
+    }
+
+    public function testOneReauthenticationStartsOneEnrollment(): void
+    {
+        $this->passwordLogin($this->createUser());
+        $this->client->jsonRequest('POST', '/admin/passkey/reauth', ['purpose' => 'register', 'password' => self::PASSWORD]);
+        $this->client->jsonRequest('POST', '/admin/passkey/register/options');
+        self::assertResponseIsSuccessful();
+
+        $this->client->jsonRequest('POST', '/admin/passkey/register/options');
+
+        self::assertResponseStatusCodeSame(403);
+    }
+
+    public function testAStartedEnrollmentDoesNotPassToTheNextUserOfTheBrowser(): void
+    {
+        $first = $this->createUser();
+        $this->passwordLogin($first);
+        $this->client->jsonRequest('POST', '/admin/passkey/reauth', ['purpose' => 'register', 'password' => self::PASSWORD]);
+        $this->client->jsonRequest('POST', '/admin/passkey/register/options');
+        /** @var array{options: array{challenge: string, user: array{id: string}}, challengeId: string} $created */
+        $created = $this->json();
+
+        $second = $this->createUser();
+        $this->passkeyLogin($this->enroll($second));
+        $this->client->jsonRequest('POST', '/admin/passkey/register', [
+            'challengeId' => $created['challengeId'],
+            'name' => 'Laptop',
+            'credential' => new SoftwareAuthenticator(self::HOST, self::ORIGIN)->register($created['options']),
+        ]);
+
+        self::assertResponseStatusCodeSame(400);
+        self::assertCount(0, $this->passkeysOf($first));
+        self::assertCount(1, $this->passkeysOf($second));
+    }
+
+    public function testAReauthenticationSaysWhatItIsFor(): void
+    {
+        $this->passwordLogin($this->createUser());
+
+        $this->client->jsonRequest('POST', '/admin/passkey/reauth', ['password' => self::PASSWORD]);
+        self::assertResponseStatusCodeSame(400);
+
+        $this->client->jsonRequest('POST', '/admin/passkey/reauth', ['purpose' => 'delete', 'password' => self::PASSWORD]);
+        self::assertResponseStatusCodeSame(400);
+    }
+
+    public function testAReauthenticationForADeletionDoesNotOpenAnEnrollment(): void
+    {
+        $user = $this->createUser();
+        $this->enroll($user);
+        $id = $this->passkeysOf($user)[0]->getId();
+        $this->passwordLogin($user);
+        $this->client->jsonRequest('POST', '/admin/passkey/reauth', ['purpose' => 'delete', 'credentialId' => $id, 'password' => self::PASSWORD]);
+        self::assertResponseStatusCodeSame(204);
+
+        $this->client->jsonRequest('POST', '/admin/passkey/register/options');
+
+        self::assertResponseStatusCodeSame(403);
+    }
+
+    public function testAReauthenticationForAnEnrollmentDoesNotDelete(): void
+    {
+        $user = $this->createUser();
+        $this->enroll($user);
+        $id = $this->passkeysOf($user)[0]->getId();
+        $this->passwordLogin($user);
+        $this->client->jsonRequest('POST', '/admin/passkey/reauth', ['purpose' => 'register', 'password' => self::PASSWORD]);
+
+        $this->client->request('DELETE', '/admin/passkey/credentials/' . $id);
+
+        self::assertResponseStatusCodeSame(403);
+        self::assertCount(1, $this->passkeysOf($user));
+    }
+
+    public function testAReauthenticationForOnePasskeyDoesNotDeleteAnother(): void
+    {
+        $user = $this->createUser();
+        $this->enroll($user);
+        $this->enroll($user);
+        [$confirmed, $other] = array_map(static fn ($passkey): string => $passkey->getId(), $this->passkeysOf($user));
+        $this->passwordLogin($user);
+        $this->client->jsonRequest('POST', '/admin/passkey/reauth', ['purpose' => 'delete', 'credentialId' => $confirmed, 'password' => self::PASSWORD]);
+
+        $this->client->request('DELETE', '/admin/passkey/credentials/' . $other);
+        self::assertResponseStatusCodeSame(403);
+
+        // The wrong attempt has used it up.
+        $this->client->request('DELETE', '/admin/passkey/credentials/' . $confirmed);
+        self::assertResponseStatusCodeSame(403);
+        self::assertCount(2, $this->passkeysOf($user));
     }
 
     public function testAReauthenticationExpires(): void
     {
         $this->passwordLogin($this->createUser());
-        $this->client->jsonRequest('POST', '/admin/passkey/reauth', ['password' => self::PASSWORD]);
+        $this->client->jsonRequest('POST', '/admin/passkey/reauth', ['purpose' => 'register', 'password' => self::PASSWORD]);
 
         self::mockTime('+6 minutes');
         $this->client->jsonRequest('POST', '/admin/passkey/register/options');
@@ -108,11 +199,11 @@ final class ReauthenticationTest extends FunctionalTestCase
     {
         $this->passwordLogin($this->createUser());
         for ($i = 0; $i < 5; ++$i) {
-            $this->client->jsonRequest('POST', '/admin/passkey/reauth', ['password' => 'wrong']);
+            $this->client->jsonRequest('POST', '/admin/passkey/reauth', ['purpose' => 'register', 'password' => 'wrong']);
             self::assertResponseStatusCodeSame(403);
         }
 
-        $this->client->jsonRequest('POST', '/admin/passkey/reauth', ['password' => self::PASSWORD]);
+        $this->client->jsonRequest('POST', '/admin/passkey/reauth', ['purpose' => 'register', 'password' => self::PASSWORD]);
 
         self::assertResponseStatusCodeSame(429);
         $this->client->jsonRequest('POST', '/admin/passkey/register/options');
@@ -151,6 +242,7 @@ final class ReauthenticationTest extends FunctionalTestCase
         $created = $this->loginOptions();
 
         $this->client->jsonRequest('POST', '/admin/passkey/reauth', [
+            'purpose' => 'register',
             'challengeId' => $created['challengeId'],
             'credential' => $authenticator->sign($created['options']),
         ]);
@@ -162,7 +254,7 @@ final class ReauthenticationTest extends FunctionalTestCase
     {
         $first = $this->createUser();
         $this->passwordLogin($first);
-        $this->client->jsonRequest('POST', '/admin/passkey/reauth', ['password' => self::PASSWORD]);
+        $this->client->jsonRequest('POST', '/admin/passkey/reauth', ['purpose' => 'register', 'password' => self::PASSWORD]);
 
         $this->passkeyLogin($this->enroll($this->createUser()));
         $this->client->jsonRequest('POST', '/admin/passkey/register/options');
@@ -176,7 +268,7 @@ final class ReauthenticationTest extends FunctionalTestCase
         $this->passwordLogin($user);
         $this->changePasswordInProfile($user, 'chosen by whoever holds the session');
 
-        $this->client->jsonRequest('POST', '/admin/passkey/reauth', ['password' => 'chosen by whoever holds the session']);
+        $this->client->jsonRequest('POST', '/admin/passkey/reauth', ['purpose' => 'register', 'password' => 'chosen by whoever holds the session']);
 
         self::assertResponseStatusCodeSame(403);
         $this->client->jsonRequest('POST', '/admin/passkey/register/options');
@@ -189,7 +281,7 @@ final class ReauthenticationTest extends FunctionalTestCase
         $this->passwordLogin($user);
         $this->changePasswordInProfile($user, 'something new');
 
-        $this->client->jsonRequest('POST', '/admin/passkey/reauth', ['password' => self::PASSWORD]);
+        $this->client->jsonRequest('POST', '/admin/passkey/reauth', ['purpose' => 'register', 'password' => self::PASSWORD]);
 
         self::assertResponseStatusCodeSame(403);
     }
@@ -200,7 +292,7 @@ final class ReauthenticationTest extends FunctionalTestCase
         $this->passkeyLogin($this->enroll($user));
         $this->changePasswordInProfile($user, 'chosen by whoever holds the session');
 
-        $this->client->jsonRequest('POST', '/admin/passkey/reauth', ['password' => 'chosen by whoever holds the session']);
+        $this->client->jsonRequest('POST', '/admin/passkey/reauth', ['purpose' => 'register', 'password' => 'chosen by whoever holds the session']);
 
         self::assertResponseStatusCodeSame(403);
     }
@@ -214,7 +306,7 @@ final class ReauthenticationTest extends FunctionalTestCase
 
         $this->client->jsonRequest('POST', '/admin/login', ['username' => $user->getUsername(), 'password' => 'something new'], ['HTTP_X_REQUESTED_WITH' => 'XMLHttpRequest']);
         self::assertResponseIsSuccessful();
-        $this->client->jsonRequest('POST', '/admin/passkey/reauth', ['password' => 'something new']);
+        $this->client->jsonRequest('POST', '/admin/passkey/reauth', ['purpose' => 'register', 'password' => 'something new']);
 
         self::assertResponseStatusCodeSame(204);
     }
@@ -223,7 +315,7 @@ final class ReauthenticationTest extends FunctionalTestCase
     {
         $user = $this->createUser();
         $this->passwordLogin($user);
-        $this->client->jsonRequest('POST', '/admin/passkey/reauth', ['password' => self::PASSWORD]);
+        $this->client->jsonRequest('POST', '/admin/passkey/reauth', ['purpose' => 'register', 'password' => self::PASSWORD]);
 
         $this->registerNewPasskey();
 
@@ -256,7 +348,7 @@ final class ReauthenticationTest extends FunctionalTestCase
         $this->enroll($user);
         $id = $this->passkeysOf($user)[0]->getId();
         $this->passwordLogin($user);
-        $this->client->jsonRequest('POST', '/admin/passkey/reauth', ['password' => self::PASSWORD]);
+        $this->client->jsonRequest('POST', '/admin/passkey/reauth', ['purpose' => 'delete', 'credentialId' => $id, 'password' => self::PASSWORD]);
 
         $this->client->request('DELETE', '/admin/passkey/credentials/' . $id);
 
@@ -269,7 +361,7 @@ final class ReauthenticationTest extends FunctionalTestCase
 
     public function testTheEndpointsNeedALogin(): void
     {
-        $this->client->jsonRequest('POST', '/admin/passkey/reauth', ['password' => 'x']);
+        $this->client->jsonRequest('POST', '/admin/passkey/reauth', ['purpose' => 'register', 'password' => 'x']);
 
         self::assertResponseStatusCodeSame(401);
     }
@@ -282,6 +374,7 @@ final class ReauthenticationTest extends FunctionalTestCase
         $created = $this->json();
 
         $this->client->jsonRequest('POST', '/admin/passkey/reauth', [
+            'purpose' => 'register',
             'challengeId' => $created['challengeId'],
             'credential' => $authenticator->sign($created['options']),
         ]);

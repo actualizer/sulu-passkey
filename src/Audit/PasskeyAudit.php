@@ -44,15 +44,20 @@ final readonly class PasskeyAudit
 
     private function record(string $type, string $message, UserInterface $owner, ?UserInterface $actor, string $id, string $name): void
     {
-        $this->activities->collect(new PasskeyChangedEvent($type, $owner, $id, $name));
-        $this->activities->dispatch();
-
+        // The log first: it cannot fail, and the change has happened whatever becomes of the other two traces.
         $this->logger->warning($message, [
             'actor' => $actor?->getUserIdentifier(),
             'user' => $owner->getUserIdentifier(),
             'passkey' => $id,
             'passkeyName' => $name,
         ]);
+
+        try {
+            $this->activities->collect(new PasskeyChangedEvent($type, $owner, $id, $name));
+            $this->activities->dispatch();
+        } catch (\Throwable $exception) {
+            $this->logger->error('Could not record the passkey change in the activity log', ['exception' => $exception]);
+        }
     }
 
     private function mail(UserInterface $owner, string $change, string $name): void

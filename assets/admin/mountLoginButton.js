@@ -5,11 +5,17 @@ import {translate} from 'sulu-admin-bundle/utils';
 import {isSupported, login} from './webauthn';
 
 const loginForm = (): ?HTMLFormElement => {
-    const password = document.querySelector('input[type="password"]');
-    const form = password && password.closest('form');
+    // Every password field, not the first: one of an open profile or user form can come before the login's.
+    for (const password of document.querySelectorAll('input[type="password"]')) {
+        const form = password.closest('form');
 
-    // The reset form has password fields too, but no user name.
-    return form && form.querySelector('input:not([type="password"])') ? (form: any) : null;
+        // The reset form has password fields too, but no user name.
+        if (form && form.querySelector('input:not([type="password"])')) {
+            return (form: any);
+        }
+    }
+
+    return null;
 };
 
 const mount = () => {

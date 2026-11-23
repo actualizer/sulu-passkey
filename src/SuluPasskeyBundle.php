@@ -46,7 +46,8 @@ final class SuluPasskeyBundle extends AbstractBundle
         $builder->prependExtensionConfig('framework', [
             'cache' => [
                 'pools' => [
-                    // Every passkey flow spans two requests, so a cache:clear must not drop its challenges.
+                    // A pool of its own, so clearing cache.app does not end the passkey flows that are under way. A
+                    // cache:clear replaces the whole cache directory and does: whoever is in between starts again.
                     'sulu_passkey.challenge_pool' => ['adapter' => 'cache.adapter.filesystem', 'default_lifetime' => 300],
                 ],
             ],
